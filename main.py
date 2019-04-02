@@ -4,7 +4,7 @@ import constant
 
 global min_x, max_x, min_y, max_y    #the rectangle range of the melbourne grid cells
 global scale_x, scale_y              #the "width" and "height" of a grid cell on the map
-global coordinates_map                           #key is the area id (eg 'A1'), value is [xmin, xmax, ymin, ymax]
+global coordinates_map               #key is the area id (eg 'A1'), value is [xmin, xmax, ymin, ymax]
 
 def load_map(filename = constant.MELB_GRID):
     with open(filename, 'rb') as input_file:
@@ -54,6 +54,6 @@ print(scale_x, scale_y)
 grid_cell = locate(145.449, -38.0)
 print(grid_cell)
 
-#TODO: parse twitter file, generate a intermediate output file?
+#TODO: parse twitter file, generate some intermediate output files?
 global post_counter # number of posts in each grid cell. eg: {'A1': 200, 'A2': 320}
 global hashtag_counter # number of hashtags in each grid cell. eg: {'A1': {'obama': 20, 'haha': 1, 'lucky': 3}, 'A2': {'stupid': 2}}
