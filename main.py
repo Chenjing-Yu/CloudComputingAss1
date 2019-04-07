@@ -52,15 +52,20 @@ def load_map(filename = constant.MELB_GRID):
 
 
 def broadcast_global(comm):
-    comm.bcast(min_x, root=0)
-    comm.bcast(max_x, root=0)
-    comm.bcast(min_y, root=0)
-    comm.bcast(max_y, root=0)
-    comm.bcast(scale_x, root=0)
-    comm.bcast(scale_y, root=0)
-    comm.bcast(coordinates_map, root=0)
-    comm.bcast(post_counter, root=0)
-    comm.bcast(hashtag_counter, root=0)
+    global min_x, max_x, min_y, max_y
+    global scale_x, scale_y
+    global coordinates_map
+    global post_counter
+    global hashtag_counter
+    min_x = comm.bcast(min_x, root=0)
+    max_x = comm.bcast(max_x, root=0)
+    min_y = comm.bcast(min_y, root=0)
+    max_y = comm.bcast(max_y, root=0)
+    scale_x = comm.bcast(scale_x, root=0)
+    scale_y = comm.bcast(scale_y, root=0)
+    coordinates_map = comm.bcast(coordinates_map, root=0)
+    post_counter = comm.bcast(post_counter, root=0)
+    hashtag_counter = comm.bcast(hashtag_counter, root=0)
 
 
 def locate(x, y):
@@ -101,8 +106,6 @@ if comm.rank == 0:
     load_map()
 broadcast_global(comm)
 
-comm.Barrier()
-
 with open(constant.SMALL_TWITTER, 'r', encoding='UTF-8') as input_file:
     for i, line in enumerate(input_file):
         if i % comm.size == comm.rank and re.search('{"id"', line):
@@ -119,7 +122,17 @@ with open(constant.SMALL_TWITTER, 'r', encoding='UTF-8') as input_file:
                     tags = get_hashtags(text)
                     for tag in tags:
                         hashtag_counter[area][tag] += 1
-comm.Barrier()
+comm.send(post_counter, dest=0)
+comm.send(hashtag_counter, dest=0)
+
+#comm.barrier()
+if comm.rank == 0:
+    #TODO: while closed_workers < num_workers: receive data and gather results
+    src = MPI.ANY_SOURCE
+    posts = comm.recv(source=src)
+    hashtags = comm.recv(source=src)
+    # calculate results
+
 
 if comm.rank is 0:
     gen_results()
