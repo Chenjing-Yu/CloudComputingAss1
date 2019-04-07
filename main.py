@@ -1,33 +1,38 @@
-import time
-import ijson
-import json
-import operator
-import collections
-import constant
+import time, json, constant, re, sys, collections
+from mpi4py import MPI
 
 global min_x, max_x, min_y, max_y    #the rectangle range of the melbourne grid cells
 global scale_x, scale_y              #the "width" and "height" of a grid cell on the map
 global coordinates_map               #key is the area id (eg 'A1'), value is [xmin, xmax, ymin, ymax]
-global post_counter # number of posts in each grid cell. eg: {'A1': 200, 'A2': 320}
-global hashtag_counter # number of hashtags in each grid cell. eg: {'A1': {'obama': 20, 'haha': 1, 'lucky': 3}, 'A2': {'stupid': 2}}
+global post_counter                  # number of posts in each grid cell. eg: {'A1': 200, 'A2': 320}
+global hashtag_counter               # number of hashtags in each grid cell. eg: {'A1': {'obama': 20, 'haha': 1, 'lucky': 3}, 'A2': {'stupid': 2}}
+
+
+def init():
+    global min_x, max_x, min_y, max_y
+    global scale_x, scale_y
+    global coordinates_map
+    global post_counter
+    global hashtag_counter
+    min_x = 180
+    max_x = 0
+    min_y = 0
+    max_y = -90
+    scale_x = None
+    scale_y = None
+    coordinates_map = {}
+    post_counter = collections.Counter()
+    hashtag_counter = {}
+
 
 def load_map(filename = constant.MELB_GRID):
+    global min_x, max_x, min_y, max_y
+    global scale_x, scale_y
+    global coordinates_map
+    global post_counter
+    global hashtag_counter
     with open(filename, 'rb') as input_file:
         data = json.load(input_file)
-        global min_x, max_x, min_y, max_y
-        global scale_x, scale_y
-        global coordinates_map
-        global post_counter
-        global hashtag_counter
-        min_x = 180
-        max_x = 0
-        min_y = 0
-        max_y = -90
-        scale_x = None
-        scale_y = None
-        coordinates_map = {}
-        post_counter = {}
-        hashtag_counter = {}
         for feature in data['features']:
             p = feature['properties']
             xmin = p['xmin']
@@ -38,12 +43,25 @@ def load_map(filename = constant.MELB_GRID):
             max_x = max(max_x, xmax)
             min_y = min(min_y, ymin)
             max_y = max(max_y, ymax)
-            if scale_x == None and scale_y == None:
+            if scale_x is None and scale_y is None:
                 scale_x = round(xmax-xmin, 2)
                 scale_y = round(ymax-ymin, 2)
             coordinates_map[p['id']] = [xmin, xmax, ymin, ymax]
             post_counter[p['id']] = 0
-            hashtag_counter[p['id']] = {}
+            hashtag_counter[p['id']] = collections.Counter()
+
+
+def broadcast_global(comm):
+    comm.bcast(min_x, root=0)
+    comm.bcast(max_x, root=0)
+    comm.bcast(min_y, root=0)
+    comm.bcast(max_y, root=0)
+    comm.bcast(scale_x, root=0)
+    comm.bcast(scale_y, root=0)
+    comm.bcast(coordinates_map, root=0)
+    comm.bcast(post_counter, root=0)
+    comm.bcast(hashtag_counter, root=0)
+
 
 def locate(x, y):
     if min_x <= x < max_x and min_y < y <= max_y:
@@ -56,74 +74,55 @@ def locate(x, y):
                 return grid_cell
     return None
 
-#extract needed tags, and output reduced file/data
-def digest(filename, batch_size = 5000):
-    with open(filename, 'rb') as input_file:
-        #parser = ijson.parse(input_file)
-        counter = 0
-        output = {'rows': [], }
-        objects = ijson.items(input_file, 'rows.item.value')
-        for object in objects:
-            output['rows'].append({'coordinates': [float(object['geometry']['coordinates'][0]),
-                                                   float(object['geometry']['coordinates'][1])],
-                                 'text': object['properties']['text']})
-            counter += 1
-        # with open('data.json', 'w') as outfile:
-        #     json.dump(output, outfile)
-        print("total post number:"+str(counter))
-        return output
 
-# def get_hashtags(text):
-#     words = text.split(' ')
-#     hashtags = []
-#     for word in words:
-#         if len(word) >1 and word[0] == '#':
-#             hashtags.append(word[1:])
-#     return hashtags
-
-def count_hashtags(grid_cell, text):
+def get_hashtags(text):
     words = text.split(' ')
+    hashtags = []
     for word in words:
-        if len(word) >1 and word[0] == '#':
-            word = word.lower()
-            if word in hashtag_counter[grid_cell]:
-                hashtag_counter[grid_cell][word] += 1
-            else:
-                hashtag_counter[grid_cell][word] = 1
+        if len(word) > 1 and word[0] == '#':
+            hashtags.append(word.lower())
+    return hashtags
 
-#statistics
-def do_statistics(data):
-    for row in data['rows']:
-        x = row['coordinates'][0]
-        y = row['coordinates'][1]
-        grid_cell = locate(x, y)
-        if (grid_cell != None):
-            post_counter[grid_cell] += 1
-            count_hashtags(grid_cell, row['text'])
 
 def gen_results():
-    sorted_post = sorted(post_counter.items(), key=lambda kv: kv[1], reverse=True)
-    for grid_cell, post_number in sorted_post:
+    for grid_cell, post_number in post_counter.most_common():
         print('{}: {} posts.'.format(grid_cell, post_number))
-    for grid_cell, post_number in sorted_post:
-        sorted_hashtags = sorted(hashtag_counter[grid_cell].items(), key=lambda kv: kv[1], reverse=True)
-        #hashtag_counter[grid_cell] = sorted_hashtags[:5]
-        print(grid_cell + ': ' + str(sorted_hashtags[:5]))
+    for grid_cell, post_number in post_counter.most_common():
+        print(grid_cell + ': ' + str(hashtag_counter[grid_cell].most_common(5)))
 
 
 start = time.time()
 
-load_map()
-print(coordinates_map)
-print(min_x, max_x, min_y, max_y)
-print(scale_x, scale_y)
-grid_cell = locate(145.449, -38.0)
-print(grid_cell)
-#running time consuming: about 12s for smallTwitter, mainly on data reading and parsing, not writing files
-reduced_data = digest(constant.SMALL_TWITTER)
+comm = MPI.COMM_WORLD
+sys.stdout = open("output_"+str(comm.rank)+".txt", "w", encoding='utf8')
 
-do_statistics(reduced_data)
-gen_results()
+init()
+if comm.rank == 0:
+    load_map()
+broadcast_global(comm)
+
+comm.Barrier()
+
+with open(constant.SMALL_TWITTER, 'r', encoding='UTF-8') as input_file:
+    for i, line in enumerate(input_file):
+        if i % comm.size == comm.rank and re.search('{"id"', line):
+            print('read line: '+str(i))
+            coordinates = re.search('"coordinates":\[\d+\.*\d*,-\d+\.*\d*\]}', line)
+            text = re.search('"text":', line)
+            location = re.search(',"location":', line)
+            if coordinates and text and location:
+                coordinates_data = json.loads('{' + coordinates.group())['coordinates']
+                area = locate(coordinates_data[0], coordinates_data[1])
+                if area is not None:
+                    post_counter[area] += 1
+                    text = line[text.start()+8: location.start()-1]
+                    tags = get_hashtags(text)
+                    for tag in tags:
+                        hashtag_counter[area][tag] += 1
+comm.Barrier()
+
+if comm.rank is 0:
+    gen_results()
 
 end = time.time()
 print("Running time="+str(end-start))
