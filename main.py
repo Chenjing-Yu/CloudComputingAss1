@@ -57,9 +57,10 @@ def deal_with_twitter(twitter):  # twitter is json
 
 def locate(coordinates):
     x, y = coordinates
-    for item in coordinates_map:
-        if item['xmin'] <= x <= item['xmax'] and item['ymin'] <= y <= item['ymax']:
-            return item['id']
+    if x != 200:
+        for item in coordinates_map:
+            if item['xmin'] <= x <= item['xmax'] and item['ymin'] <= y <= item['ymax']:
+                return item['id']
     return None
 
 
