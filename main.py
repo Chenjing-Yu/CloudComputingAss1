@@ -1,54 +1,22 @@
 import time, json, constant, re, sys, collections
 from mpi4py import MPI
 
-global min_x, max_x, min_y, max_y    #the rectangle range of the melbourne grid cells
-global scale_x, scale_y              #the "width" and "height" of a grid cell on the map
 global coordinates_map               #key is the area id (eg 'A1'), value is [xmin, xmax, ymin, ymax]
 global post_counter                  # number of posts in each grid cell. eg: {'A1': 200, 'A2': 320}
 global hashtag_counter               # number of hashtags in each grid cell. eg: {'A1': {'obama': 20, 'haha': 1, 'lucky': 3}, 'A2': {'stupid': 2}}
 global comm
 
 
-def init():
-    global min_x, max_x, min_y, max_y
-    global scale_x, scale_y
+def init(filename=constant.MELB_GRID):
     global coordinates_map, post_counter, hashtag_counter
-    min_x = 180
-    max_x = 0
-    min_y = 0
-    max_y = -90
-    scale_x = None
-    scale_y = None
-    coordinates_map = {}
+    coordinates_map = []
     post_counter = collections.Counter()
     hashtag_counter = {}
-    load_map()
-
-
-def load_map(filename=constant.MELB_GRID):
-    global min_x, max_x, min_y, max_y
-    global scale_x, scale_y
-    global coordinates_map, post_counter, hashtag_counter
-    with open(filename, 'rb') as file:
+    with open(filename, 'r') as file:
         data = json.load(file)
         for feature in data['features']:
             p = feature['properties']
-            xmin = p['xmin']
-            xmax = p['xmax']
-            ymin = p['ymin']
-            ymax = p['ymax']
-            min_x = min(min_x, xmin)
-            max_x = max(max_x, xmax)
-            min_y = min(min_y, ymin)
-            max_y = max(max_y, ymax)
-            if scale_x is None and scale_y is None:
-                scale_x = round(xmax-xmin, 2)
-                scale_y = round(ymax-ymin, 2)
-            #coordinates_map[p['id']] = [xmin, xmax, ymin, ymax]
-            if [xmin, xmax] in coordinates_map:
-                coordinates_map[[xmin, xmax]] = {[ymin, ymax]: p['id']}
-            else:
-                coordinates_map[[xmin, xmax]][[ymin, ymax]] = p['id']
+            coordinates_map.append(p)
             post_counter[p['id']] = 0
             hashtag_counter[p['id']] = collections.Counter()
 
@@ -84,26 +52,9 @@ def deal_with_twitter(twitter):  # twitter is json
 
 def locate(coordinates):
     x, y = coordinates
-    if min_x <= x <= max_x and min_y <= y <= max_y:
-        if y == max_y:
-            i = 0
-        else:
-            i = int(round((max_y-min_y), 2)/scale_y)-int(round((y-min_y), 2)/scale_y)-1
-        if i < len(constant.ALPHABET):
-            if x == min_x:
-                second = 1
-            else:
-                second = int(round((max_x-min_x), 2)/scale_x)-int(round((max_x-x), 2)/scale_x)
-            first = constant.ALPHABET[i]
-            # deal with d3 left edge and c5 upper edge
-            if x == 145 and first == 'D':
-                second = 2
-            if second == 5 and y == -37.8:
-                first = 'C'  # constant.ALPHABET[i+1]
-
-            grid_cell = first+str(second)
-            if grid_cell in coordinates_map:
-                return grid_cell
+    for item in coordinates_map:
+        if item['xmin'] <= x <= item['xmax'] and item['ymin'] <= y <= item['ymax']:
+            return item['id']
     return None
 
 
@@ -119,7 +70,7 @@ def get_coordinate(twitter):
 
 
 def get_text(twitter):
-        return twitter['doc']['text']
+    return twitter['doc']['text']
 
 
 def get_tags(text):
@@ -184,7 +135,7 @@ if comm.size > 1:
         comm.send([post_counter, hashtag_counter], dest=0)
 else:
     with open(constant.SMALL_TWITTER, "r") as fh:
-        line = fh.readline()  # remove first line
+        fh.readline()  # remove first line
         line = fh.readline()
         while line:
             if line != ']}\n':  # ignore last line
