@@ -151,4 +151,4 @@ if comm.rank is 0:
     gen_results()
 
 end = time.time()
-print("Running time="+str(end-start))
+print(str(comm.rank)+" running time="+str(end-start))
