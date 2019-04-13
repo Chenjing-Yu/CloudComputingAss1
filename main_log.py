@@ -83,6 +83,8 @@ def get_tags(text):
 
 
 def gen_results():
+    # for grid_cell, post_number in post_counter.most_common():
+    #     print('{}: {} posts.'.format(grid_cell, post_number))
     for grid_cell, post_number in post_counter.most_common():
         unique = 0
         count = 0
@@ -95,6 +97,7 @@ def gen_results():
                     break
             count += 1
         print('{}: {} posts. {}'.format(grid_cell, post_number, str(hashtag_counter[grid_cell].most_common(count))))
+        #print(grid_cell + ': ' + str(hashtag_counter[grid_cell].most_common(count)))
 
 
 def combine(result):
@@ -105,6 +108,7 @@ def combine(result):
 
 start = time.time()
 comm = MPI.COMM_WORLD
+sys.stdout = open("output_"+str(comm.rank)+".txt", "w", encoding='utf8')
 
 init()
 batch_size = 1000
@@ -112,7 +116,7 @@ data_to_process = []
 if comm.size > 1:
     if comm.rank is 0:
         # rank 0 is responsible for reading the file and send data to other processors
-        with open(constant.BIG_TWITTER, 'r', encoding='UTF-8') as input_file:
+        with open(constant.SMALL_TWITTER, 'r', encoding='UTF-8') as input_file:
             n = 0  # count the batch
             for i, line in enumerate(input_file):
                 if (i+1) % batch_size is 0:
@@ -120,7 +124,7 @@ if comm.size > 1:
                     comm.send(data_to_process, dest=get_processor(n))
                     data_to_process = []
                 data_to_process.append(line)
-        handle(data_to_process)
+        handle(data_to_process)  # handle last twitters
         for i in range(1, comm.size):
             comm.send('Done', dest=i)
     else:  # slaves receive and handle data
@@ -130,8 +134,8 @@ if comm.size > 1:
             data_to_process = comm.recv(source=0)
         comm.send([post_counter, hashtag_counter], dest=0)
 else:
-    with open(constant.BIG_TWITTER, "r") as fh:
-        line = fh.readline()  # remove first line
+    with open(constant.SMALL_TWITTER, "r") as fh:
+        fh.readline()  # remove first line
         line = fh.readline()
         while line:
             if line != ']}\n':  # ignore last line
